@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import math
 import os
 import random
 import re
@@ -472,13 +473,16 @@ class PersonalAssistantPlugin(MaiBotPlugin):
         await asyncio.to_thread(_write)
 
     @API("memo_web_list", version="1")
-    async def web_list_tasks(self, query: str = "", status: str = "pending") -> dict[str, Any]:
+    async def web_list_tasks(self, query: str = "", status: str = "pending", repeat: str = "all") -> dict[str, Any]:
         """Return a bounded, searchable snapshot for the authenticated plugin page."""
         allowed = {"pending", "done", "rejected", "failed"}
         needle = str(query or "").strip().casefold()[:120]
         selected_status = str(status or "pending").strip().lower()
         if selected_status not in allowed and selected_status != "all":
             selected_status = "pending"
+        selected_repeat = str(repeat or "all").strip().lower()
+        if selected_repeat not in {"all", "daily", "once"}:
+            selected_repeat = "all"
         async with self._tasks_lock:
             tasks = [dict(item) for item in self._tasks if isinstance(item, dict)]
         tasks.sort(key=lambda item: float(item.get("remind_at") or 0))
@@ -487,19 +491,97 @@ class PersonalAssistantPlugin(MaiBotPlugin):
             state = str(item.get("status") or "pending")
             if selected_status != "all" and state != selected_status and not (selected_status == "pending" and state == "sending"):
                 continue
+            is_daily = bool(item.get("repeat_daily"))
+            if selected_repeat == "daily" and not is_daily or selected_repeat == "once" and is_daily:
+                continue
             if needle and needle not in (str(item.get("task_text") or "") + " " + str(item.get("user_id") or "")).casefold():
                 continue
             rows.append({
                 "id": str(item.get("id") or ""),
                 "task": str(item.get("task_text") or "")[:500],
                 "user_id": str(item.get("user_id") or "")[:80],
+                "group_id": str(item.get("group_id") or "")[:80],
                 "created_at": float(item.get("created_at") or 0),
                 "remind_at": float(item.get("remind_at") or 0),
                 "status": state,
                 "channel": str(item.get("channel_pref") or "auto"),
+                "repeat_daily": is_daily,
                 "media_count": len(item.get("media") or []),
             })
         return {"tasks": rows[:500], "total": len(rows), "truncated": len(rows) > 500}
+
+    @staticmethod
+    def _web_task_values(payload: str, *, current: dict[str, Any] | None = None) -> dict[str, Any]:
+        try:
+            values = json.loads(payload or "{}")
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("任务内容格式无效") from exc
+        if not isinstance(values, dict):
+            raise ValueError("任务内容必须是对象")
+        text = str(values.get("task_text", current.get("task_text", "") if current else "")).strip()
+        user_id = str(values.get("user_id", current.get("user_id", "") if current else "")).strip()
+        group_id = str(values.get("group_id", current.get("group_id", "") if current else "")).strip()
+        channel = str(values.get("channel_pref", current.get("channel_pref", "auto") if current else "auto")).strip()
+        repeat_daily = values.get("repeat_daily", current.get("repeat_daily", False) if current else False)
+        if not text or len(text) > 500:
+            raise ValueError("提醒内容不能为空，且不能超过 500 个字符")
+        if not user_id or len(user_id) > 80:
+            raise ValueError("请填写有效的用户 QQ 号")
+        if len(group_id) > 80:
+            raise ValueError("群号不能超过 80 个字符")
+        if channel not in {"auto", "private", "group"}:
+            raise ValueError("提醒渠道无效")
+        if not isinstance(repeat_daily, bool):
+            raise ValueError("每日重复选项无效")
+        try:
+            remind_at = float(values.get("remind_at", current.get("remind_at") if current else 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("提醒时间无效") from exc
+        if not math.isfinite(remind_at) or remind_at <= time.time():
+            raise ValueError("提醒时间必须晚于当前时间")
+        return {"task_text": text, "user_id": user_id, "group_id": group_id,
+                "channel_pref": channel, "repeat_daily": repeat_daily, "remind_at": remind_at}
+
+    @API("memo_web_create", version="1")
+    async def web_create_task(self, payload: str) -> dict[str, Any]:
+        values = self._web_task_values(payload)
+        max_hours = max(0.1, float(self.config.reminder.max_delay_hours))
+        if values["remind_at"] > time.time() + max_hours * 3600:
+            raise ValueError(f"提醒时间不能晚于 {max_hours:g} 小时")
+        async with self._tasks_lock:
+            mine = [item for item in self._tasks if item.get("user_id") == values["user_id"] and item.get("status") in {_STATUS_PENDING, "sending"}]
+            if len(mine) >= int(self.config.reminder.max_tasks_per_user):
+                raise ValueError("该用户的待办任务已达到数量上限")
+            task = {"id": uuid.uuid4().hex, **values, "source_stream": "", "source_platform": "qq",
+                    "created_at": time.time(), "status": _STATUS_PENDING, "media": [], "reply_to": ""}
+            self._tasks.append(task)
+            await self._save_tasks()
+        return {"success": True, "task_id": task["id"]}
+
+    @API("memo_web_update", version="1")
+    async def web_update_task(self, task_id: str, payload: str) -> dict[str, Any]:
+        async with self._tasks_lock:
+            task = next((item for item in self._tasks if str(item.get("id") or "") == task_id), None)
+            if task is None or task.get("status") != _STATUS_PENDING:
+                raise ValueError("任务不存在或已进入发送流程")
+            values = self._web_task_values(payload, current=task)
+            task.update(values)
+            await self._save_tasks()
+        return {"success": True}
+
+    @API("memo_web_delete", version="1")
+    async def web_delete_task(self, task_id: str) -> dict[str, Any]:
+        async with self._tasks_lock:
+            index = next((i for i, item in enumerate(self._tasks) if str(item.get("id") or "") == task_id), None)
+            if index is None:
+                raise ValueError("任务不存在")
+            task = self._tasks[index]
+            if task.get("status") == "sending":
+                raise ValueError("任务正在发送，无法删除")
+            self._delete_task_media(task)
+            self._tasks.pop(index)
+            await self._save_tasks()
+        return {"success": True}
 
     @API("memo_web_cancel", version="1")
     async def web_cancel_task(self, task_id: str) -> dict[str, Any]:
@@ -599,7 +681,7 @@ class PersonalAssistantPlugin(MaiBotPlugin):
         """清理所有已到期的任务（含已提醒/失败/拒绝），释放媒体文件。返回清理数。"""
         now = time.time()
         async with self._tasks_lock:
-            expired = [t for t in self._tasks if float(t.get("remind_at") or 0) <= now]
+            expired = [t for t in self._tasks if not t.get("repeat_daily") and float(t.get("remind_at") or 0) <= now]
             if not expired:
                 return 0
             victim_ids = {id(t) for t in expired}
@@ -875,7 +957,8 @@ class PersonalAssistantPlugin(MaiBotPlugin):
                 "source_platform": platform,
                 "task_text": task_text[:500],
                 "remind_at": remind_ts,
-                "channel_pref": channel_pref,
+                    "channel_pref": channel_pref,
+                    "repeat_daily": False,
                 "created_at": now_ts,
                 "status": _STATUS_PENDING,
                 "media": [],
@@ -1623,9 +1706,18 @@ class PersonalAssistantPlugin(MaiBotPlugin):
         返回是否实际移除（done/failed 会移除记录并返回 True；其它状态仅更新，返回 False）。
         """
         removed = False
+        changed = False
         async with self._tasks_lock:
             for i, t in enumerate(self._tasks):
                 if t.get("id") == task_id:
+                    if t.get("repeat_daily") and status in (_STATUS_DONE, _STATUS_FAILED):
+                        next_at = datetime.fromtimestamp(float(t.get("remind_at") or time.time())) + timedelta(days=1)
+                        while next_at.timestamp() <= time.time():
+                            next_at += timedelta(days=1)
+                        t["remind_at"] = next_at.timestamp()
+                        t["status"] = _STATUS_PENDING
+                        changed = True
+                        break
                     # 无论成败，先清理附件（落盘图片、媒体目录）
                     self._delete_task_media(t)
                     if status in (_STATUS_DONE, _STATUS_FAILED):
@@ -1633,8 +1725,9 @@ class PersonalAssistantPlugin(MaiBotPlugin):
                         removed = True
                     else:
                         t["status"] = status
+                        changed = True
                     break
-        if removed:
+        if removed or changed:
             await self._save_tasks()
         return removed
 

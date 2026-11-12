@@ -15,13 +15,33 @@
           "api": "memo_web_list",
           "parameters": {
             "query": {"type": "string", "required": false, "max_length": 120},
-            "status": {"type": "string", "required": false, "max_length": 20}
+            "status": {"type": "string", "required": false, "max_length": 20},
+            "repeat": {"type": "string", "required": false, "max_length": 20}
           }
         }
       },
       "actions": {
         "cancel": {
           "api": "memo_web_cancel",
+          "parameters": {
+            "task_id": {"type": "string", "required": true, "max_length": 80}
+          }
+        },
+        "create": {
+          "api": "memo_web_create",
+          "parameters": {
+            "payload": {"type": "string", "required": true, "max_length": 4000}
+          }
+        },
+        "update": {
+          "api": "memo_web_update",
+          "parameters": {
+            "task_id": {"type": "string", "required": true, "max_length": 80},
+            "payload": {"type": "string", "required": true, "max_length": 4000}
+          }
+        },
+        "delete": {
+          "api": "memo_web_delete",
           "parameters": {
             "task_id": {"type": "string", "required": true, "max_length": 80}
           }

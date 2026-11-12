@@ -56,9 +56,10 @@ class WebUITests(unittest.TestCase):
         root = Path(__file__).parents[1]
         manifest = json.loads((root / "_manifest.json").read_text(encoding="utf-8"))
         webui = json.loads((root / "webui.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.1.2")
+        self.assertEqual(manifest["version"], "1.2.0")
         self.assertIn(manifest["display"]["icon"]["type"], {"lucide", "emoji", "local"})
         self.assertIn(webui["pages"][0]["icon"], {"puzzle", "chart", "settings", "database", "list"})
+        self.assertEqual({"create", "update", "delete"} & set(webui["pages"][0]["actions"]), {"create", "update", "delete"})
 
     def test_list_filters_and_only_returns_safe_fields(self):
         plugin = plugin_with([
@@ -84,6 +85,23 @@ class WebUITests(unittest.TestCase):
             asyncio.run(plugin.web_cancel_task("a"))
         self.assertEqual(len(plugin._tasks), 1)
         self.assertFalse(plugin.saved)
+
+    def test_daily_filter_and_repeat_field(self):
+        plugin = plugin_with([
+            {"id": "daily", "task_text": "Water", "user_id": "100", "status": "pending", "remind_at": 30, "repeat_daily": True},
+            {"id": "once", "task_text": "Walk", "user_id": "100", "status": "pending", "remind_at": 40},
+        ])
+        result = asyncio.run(plugin.web_list_tasks("", "pending", "daily"))
+        self.assertEqual([item["id"] for item in result["tasks"]], ["daily"])
+        self.assertTrue(result["tasks"][0]["repeat_daily"])
+
+    def test_daily_completion_moves_task_to_next_day(self):
+        plugin = plugin_with([{"id": "daily", "status": "sending", "repeat_daily": True, "remind_at": 1}])
+        removed = asyncio.run(plugin._mark_task("daily", "done"))
+        self.assertFalse(removed)
+        self.assertEqual(plugin._tasks[0]["status"], "pending")
+        self.assertGreater(plugin._tasks[0]["remind_at"], 86400)
+        self.assertTrue(plugin.saved)
 
 
 if __name__ == "__main__":

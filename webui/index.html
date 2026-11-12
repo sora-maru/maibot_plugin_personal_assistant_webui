@@ -7,34 +7,49 @@
   <style>
     :root{color-scheme:light dark;font:14px/1.5 system-ui,"Microsoft YaHei",sans-serif;--bg:#f4f6f8;--panel:#fff;--text:#20262e;--muted:#687482;--line:#dce2e8;--accent:#147d70;--danger:#b93838}
     @media(prefers-color-scheme:dark){:root{--bg:#171b20;--panel:#20262e;--text:#e6ebf0;--muted:#a2adb9;--line:#39434e;--accent:#63cbbb;--danger:#ff7777}}
-    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}main{max-width:1200px;margin:auto;padding:20px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);padding-bottom:14px}h1{font-size:20px;margin:0;font-weight:650}.sub{color:var(--muted);font-size:12px;margin-top:3px}.tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0}input,select,button{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:8px 10px}input{flex:1;min-width:180px}button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:wait}.primary{background:var(--accent);color:white;border-color:var(--accent)}.count{color:var(--muted);margin-left:auto;white-space:nowrap}.table-wrap{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:550;font-size:12px}tbody tr:last-child td{border-bottom:0}.task{white-space:pre-wrap;overflow-wrap:anywhere;max-width:460px}.minor{display:block;color:var(--muted);font-size:12px;margin-top:3px}.status{white-space:nowrap}.cancel{color:var(--danger)}.empty,.error{padding:28px;text-align:center;color:var(--muted)}.error{color:var(--danger)}@media(max-width:600px){main{padding:14px}header{align-items:flex-start}.tools{align-items:stretch}select{flex:1}.count{width:100%;margin:0}}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}main{max-width:1200px;margin:auto;padding:20px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);padding-bottom:14px}h1{font-size:20px;margin:0;font-weight:650}.sub{color:var(--muted);font-size:12px;margin-top:3px}.tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:16px 0}input,select,textarea,button{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:8px 10px}input{flex:1;min-width:180px}button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:wait}.primary{background:var(--accent);color:white;border-color:var(--accent)}.count{color:var(--muted);margin-left:auto;white-space:nowrap}.table-wrap{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px}table{width:100%;border-collapse:collapse;min-width:850px}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:550;font-size:12px}tbody tr:last-child td{border-bottom:0}.task{white-space:pre-wrap;overflow-wrap:anywhere;max-width:420px}.minor{display:block;color:var(--muted);font-size:12px;margin-top:3px}.status{white-space:nowrap}.danger{color:var(--danger)}.row-actions{display:flex;gap:5px}.row-actions button{padding:5px 8px}.empty,.error{padding:28px;text-align:center;color:var(--muted)}.error{color:var(--danger)}dialog{width:min(520px,calc(100vw - 24px));max-height:90vh;overflow:auto;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:0}dialog::backdrop{background:#0009}.form-head,.form-foot{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)}.form-foot{border-top:1px solid var(--line);border-bottom:0;justify-content:flex-end;gap:8px}.form-body{padding:16px 18px;display:grid;gap:12px}.field{display:grid;gap:5px}.field input,.field select,.field textarea{width:100%;min-width:0}.field textarea{min-height:78px;resize:vertical}.inline{display:flex;align-items:center;gap:8px}.inline input{flex:0 0 auto;min-width:0}.hint{font-size:12px;color:var(--muted)}@media(max-width:600px){main{padding:14px}header{align-items:flex-start}.tools{align-items:stretch}select{flex:1}.count{width:100%;margin:0}}
   </style>
 </head>
 <body>
 <main>
-  <header><div><h1>备忘任务</h1><div class="sub">浏览和管理插件中保存的定时提醒</div></div><button id="refresh" type="button" aria-label="刷新任务" title="刷新任务">↻</button></header>
+  <header><div><h1>备忘任务</h1><div class="sub">查看、筛选和管理定时提醒</div></div><div class="row-actions"><button id="refresh" type="button" aria-label="刷新任务" title="刷新任务">↻</button><button id="add" class="primary" type="button">新增任务</button></div></header>
   <section class="tools" aria-label="筛选任务">
     <input id="search" type="search" placeholder="搜索任务内容或 QQ 号" aria-label="搜索任务内容或 QQ 号">
     <select id="status" aria-label="任务状态"><option value="pending">待提醒</option><option value="all">全部状态</option><option value="done">已完成</option><option value="rejected">已取消</option><option value="failed">失败</option></select>
+    <select id="repeat" aria-label="重复方式"><option value="all">全部类型</option><option value="once">单次</option><option value="daily">每日重复</option></select>
     <span class="count" id="count">读取中…</span>
   </section>
-  <div class="table-wrap"><table><thead><tr><th>提醒内容</th><th>用户</th><th>提醒时间</th><th>状态</th><th>操作</th></tr></thead><tbody id="rows"><tr><td colspan="5" class="empty">正在读取任务…</td></tr></tbody></table></div>
+  <div class="table-wrap"><table><thead><tr><th>提醒内容</th><th>用户</th><th>提醒时间</th><th>重复</th><th>状态</th><th>操作</th></tr></thead><tbody id="rows"><tr><td colspan="6" class="empty">正在读取任务…</td></tr></tbody></table></div>
 </main>
+<dialog id="editor">
+  <form id="task-form">
+    <div class="form-head"><strong id="form-title">新增备忘任务</strong><button id="close" type="button" aria-label="关闭">×</button></div>
+    <div class="form-body">
+      <label class="field">提醒内容<textarea id="task-text" maxlength="500" required></textarea></label>
+      <label class="field">用户 QQ 号<input id="user-id" maxlength="80" required></label>
+      <label class="field">群号（可留空）<input id="group-id" maxlength="80"></label>
+      <label class="field">提醒时间<input id="remind-at" type="datetime-local" required></label>
+      <label class="field">提醒渠道<select id="channel"><option value="auto">自动</option><option value="private">私聊</option><option value="group">群聊 @</option></select></label>
+      <label class="inline"><input id="repeat-daily" type="checkbox"><span>每日重复</span></label>
+      <div class="hint">每日任务发送后会保留，并按相同时间顺延到次日。</div>
+    </div>
+    <div class="form-foot"><button id="cancel-form" type="button">取消</button><button id="save" class="primary" type="submit">保存</button></div>
+  </form>
+</dialog>
 <script>
 (() => {
-  const rows=document.getElementById('rows'),count=document.getElementById('count'),search=document.getElementById('search'),status=document.getElementById('status');
-  const labels={pending:'待提醒',sending:'发送中',done:'已完成',rejected:'已取消',failed:'失败'};
+  const $=id=>document.getElementById(id),rows=$('rows'),count=$('count'),search=$('search'),status=$('status'),repeat=$('repeat'),editor=$('editor');
+  const labels={pending:'待提醒',sending:'发送中',done:'已完成',rejected:'已取消',failed:'失败'};let editingId='';
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const date=ts=>ts?new Date(ts*1000).toLocaleString():'-';
-  async function load(){
-    rows.innerHTML='<tr><td colspan="5" class="empty">正在读取任务…</td></tr>';
-    try{await maibot.ready;const result=await maibot.query('list',{query:search.value,status:status.value});const tasks=result.tasks||[];count.textContent=`${result.total||0} 条${result.truncated?'（仅显示前 500 条）':''}`;
-      if(!tasks.length){rows.innerHTML='<tr><td colspan="5" class="empty">没有符合条件的任务</td></tr>';return;}
-      rows.innerHTML=tasks.map(t=>`<tr><td class="task">${esc(t.task)}<span class="minor">创建于 ${esc(date(t.created_at))}${t.media_count?` · ${t.media_count} 个附件`:''}</span></td><td>${esc(t.user_id)}</td><td>${esc(date(t.remind_at))}<span class="minor">${esc(t.channel||'auto')} 渠道</span></td><td class="status">${esc(labels[t.status]||t.status)}</td><td>${t.status==='pending'?`<button class="cancel" type="button" data-id="${esc(t.id)}">取消</button>`:'-'}</td></tr>`).join('');
-    }catch(e){count.textContent='读取失败';rows.innerHTML=`<tr><td colspan="5" class="error">${esc(e.message||'读取任务失败')}</td></tr>`;}
-  }
-  rows.addEventListener('click',async e=>{const btn=e.target.closest('[data-id]');if(!btn)return;if(!confirm('取消这条备忘任务？'))return;btn.disabled=true;try{await maibot.action('cancel',{task_id:btn.dataset.id});await load();}catch(err){alert(err.message||'取消失败');btn.disabled=false;}});
-  document.getElementById('refresh').addEventListener('click',load);status.addEventListener('change',load);let timer;search.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(load,250);});load();
+  const localInput=ts=>{const d=new Date(ts*1000);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16);};
+  async function load(){rows.innerHTML='<tr><td colspan="6" class="empty">正在读取任务…</td></tr>';try{await maibot.ready;const result=await maibot.query('list',{query:search.value,status:status.value,repeat:repeat.value});const tasks=result.tasks||[];count.textContent=`${result.total||0} 条${result.truncated?'（仅显示前 500 条）':''}`;if(!tasks.length){rows.innerHTML='<tr><td colspan="6" class="empty">没有符合条件的任务</td></tr>';return;}rows.innerHTML=tasks.map(t=>`<tr><td class="task">${esc(t.task)}<span class="minor">创建于 ${esc(date(t.created_at))}${t.media_count?` · ${t.media_count} 个附件`:''}</span></td><td>${esc(t.user_id)}${t.group_id?`<span class="minor">群 ${esc(t.group_id)}</span>`:''}</td><td>${esc(date(t.remind_at))}<span class="minor">${esc(t.channel||'auto')} 渠道</span></td><td>${t.repeat_daily?'每日':'单次'}</td><td class="status">${esc(labels[t.status]||t.status)}</td><td><div class="row-actions">${t.status==='pending'?`<button type="button" data-edit="${esc(t.id)}">编辑</button>`:''}<button type="button" class="danger" data-delete="${esc(t.id)}">删除</button></div></td></tr>`).join('');}catch(e){count.textContent='读取失败';rows.innerHTML=`<tr><td colspan="6" class="error">${esc(e.message||'读取任务失败')}</td></tr>`;}}
+  function openForm(task){editingId=task?.id||'';$('form-title').textContent=editingId?'编辑备忘任务':'新增备忘任务';$('task-text').value=task?.task||'';$('user-id').value=task?.user_id||'';$('group-id').value=task?.group_id||'';$('remind-at').value=task?localInput(task.remind_at):localInput(Date.now()/1000+3600);$('channel').value=task?.channel||'auto';$('repeat-daily').checked=!!task?.repeat_daily;editor.showModal();}
+  async function mutate(api,args){const button=$('save');button.disabled=true;try{await maibot.action(api,args);editor.close();await load();}catch(e){alert(e.message||'保存失败');}finally{button.disabled=false;}}
+  $('add').addEventListener('click',()=>openForm(null));$('close').addEventListener('click',()=>editor.close());$('cancel-form').addEventListener('click',()=>editor.close());$('refresh').addEventListener('click',load);
+  $('task-form').addEventListener('submit',e=>{e.preventDefault();const payload={task_text:$('task-text').value,user_id:$('user-id').value,group_id:$('group-id').value,remind_at:Math.floor(new Date($('remind-at').value).getTime()/1000),channel_pref:$('channel').value,repeat_daily:$('repeat-daily').checked};mutate(editingId?'update':'create',editingId?{task_id:editingId,payload:JSON.stringify(payload)}:{payload:JSON.stringify(payload)});});
+  rows.addEventListener('click',async e=>{const edit=e.target.closest('[data-edit]');if(edit){const task=(await maibot.query('list',{query:'',status:'pending',repeat:'all'})).tasks.find(item=>item.id===edit.dataset.edit);if(task)openForm(task);return;}const del=e.target.closest('[data-delete]');if(del&&confirm('永久删除这条任务及其附件？')){del.disabled=true;try{await maibot.action('delete',{task_id:del.dataset.delete});await load();}catch(err){alert(err.message||'删除失败');del.disabled=false;}}});
+  status.addEventListener('change',load);repeat.addEventListener('change',load);let timer;search.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(load,250);});load();
 })();
 </script>
 </body>
