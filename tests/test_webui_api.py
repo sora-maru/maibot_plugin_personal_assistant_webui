@@ -1,0 +1,81 @@
+import asyncio
+import importlib.util
+import sys
+import types
+from pathlib import Path
+import unittest
+
+
+def load_plugin_module():
+    sdk = types.ModuleType("maibot_sdk")
+
+    class ConfigBase:
+        pass
+
+    def identity_decorator(*args, **kwargs):
+        return lambda target: target
+
+    sdk.API = sdk.Command = sdk.HookHandler = sdk.Tool = identity_decorator
+    sdk.Field = lambda default=None, **kwargs: default
+    sdk.MaiBotPlugin = type("MaiBotPlugin", (), {})
+    sdk.PluginConfigBase = ConfigBase
+    sdk_types = types.ModuleType("maibot_sdk.types")
+    for name in ("ErrorPolicy", "HookMode", "HookOrder", "ToolParamType"):
+        setattr(sdk_types, name, types.SimpleNamespace(BLOCKING="blocking", EARLY="early", SKIP="skip", STRING="string"))
+    sdk_types.ToolParameterInfo = lambda **kwargs: kwargs
+    sys.modules["maibot_sdk"] = sdk
+    sys.modules["maibot_sdk.types"] = sdk_types
+    path = Path(__file__).parents[1] / "plugin.py"
+    spec = importlib.util.spec_from_file_location("memo_webui_test_plugin", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+module = load_plugin_module()
+
+
+def plugin_with(tasks):
+    plugin = object.__new__(module.PersonalAssistantPlugin)
+    plugin._tasks = tasks
+    plugin._tasks_lock = asyncio.Lock()
+    plugin.saved = False
+    plugin.deleted = []
+
+    async def save():
+        plugin.saved = True
+
+    plugin._save_tasks = save
+    plugin._delete_task_media = lambda task: plugin.deleted.append(task["id"])
+    return plugin
+
+
+class WebUITests(unittest.TestCase):
+    def test_list_filters_and_only_returns_safe_fields(self):
+        plugin = plugin_with([
+            {"id": "a", "task_text": "Drink water", "user_id": "100", "status": "pending", "remind_at": 20, "secret": "hidden"},
+            {"id": "b", "task_text": "Call home", "user_id": "200", "status": "done", "remind_at": 10},
+        ])
+        result = asyncio.run(plugin.web_list_tasks("water", "pending"))
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["tasks"][0]["id"], "a")
+        self.assertNotIn("secret", result["tasks"][0])
+
+    def test_cancel_removes_pending_task_and_persists(self):
+        plugin = plugin_with([{"id": "a", "status": "pending"}, {"id": "b", "status": "done"}])
+        result = asyncio.run(plugin.web_cancel_task("a"))
+        self.assertEqual(result, {"success": True})
+        self.assertEqual([task["id"] for task in plugin._tasks], ["b"])
+        self.assertEqual(plugin.deleted, ["a"])
+        self.assertTrue(plugin.saved)
+
+    def test_cancel_cannot_remove_sending_task(self):
+        plugin = plugin_with([{"id": "a", "status": "sending"}])
+        with self.assertRaises(ValueError):
+            asyncio.run(plugin.web_cancel_task("a"))
+        self.assertEqual(len(plugin._tasks), 1)
+        self.assertFalse(plugin.saved)
+
+
+if __name__ == "__main__":
+    unittest.main()

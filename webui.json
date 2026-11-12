@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "required_capabilities": ["custom_pages"],
+  "pages": [
+    {
+      "id": "memo_manager",
+      "title": "备忘任务管理",
+      "placement": "sidebar",
+      "icon": "calendar-clock",
+      "mode": "custom",
+      "entry": "webui/index.html",
+      "layout": "viewport",
+      "queries": {
+        "list": {
+          "api": "memo_web_list",
+          "parameters": {
+            "query": {"type": "string", "required": false, "max_length": 120},
+            "status": {"type": "string", "required": false, "max_length": 20}
+          }
+        }
+      },
+      "actions": {
+        "cancel": {
+          "api": "memo_web_cancel",
+          "parameters": {
+            "task_id": {"type": "string", "required": true, "max_length": 80}
+          }
+        }
+      }
+    }
+  ]
+}

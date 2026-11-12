@@ -1,0 +1,11 @@
+# 运行期生成
+config.toml
+__pycache__/
+*.pyc
+*.pyo
+# 插件数据（本地运行生成）
+tasks.json
+media/
+__pycache__/
+*.py[cod]
+config.toml
