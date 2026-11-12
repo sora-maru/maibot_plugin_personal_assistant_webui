@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "id": "github.sora-maru.personal-assistant-webui",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "name": "个人备忘助手 WebUI",
   "description": "创建可持久化的定时备忘提醒，到期由麦麦自然地通知你；通过 WebUI 搜索、筛选和取消任务，并支持图片与文件附件。",
   "author": {
@@ -51,5 +51,5 @@
       "zh-CN"
     ]
   },
-  "display": {"icon": {"type": "builtin", "value": "calendar-clock"}}
+  "display": {"icon": {"type": "lucide", "value": "calendar-clock"}}
 }
