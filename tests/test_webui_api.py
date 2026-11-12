@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -51,6 +52,14 @@ def plugin_with(tasks):
 
 
 class WebUITests(unittest.TestCase):
+    def test_webui_declaration_uses_supported_page_icon(self):
+        root = Path(__file__).parents[1]
+        manifest = json.loads((root / "_manifest.json").read_text(encoding="utf-8"))
+        webui = json.loads((root / "webui.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "1.1.2")
+        self.assertIn(manifest["display"]["icon"]["type"], {"lucide", "emoji", "local"})
+        self.assertIn(webui["pages"][0]["icon"], {"puzzle", "chart", "settings", "database", "list"})
+
     def test_list_filters_and_only_returns_safe_fields(self):
         plugin = plugin_with([
             {"id": "a", "task_text": "Drink water", "user_id": "100", "status": "pending", "remind_at": 20, "secret": "hidden"},

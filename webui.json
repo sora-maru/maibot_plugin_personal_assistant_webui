@@ -6,7 +6,7 @@
       "id": "memo_manager",
       "title": "备忘任务管理",
       "placement": "sidebar",
-      "icon": "calendar-clock",
+      "icon": "list",
       "mode": "custom",
       "entry": "webui/index.html",
       "layout": "viewport",
