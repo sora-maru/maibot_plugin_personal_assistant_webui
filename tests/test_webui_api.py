@@ -2,33 +2,15 @@ import asyncio
 import importlib.util
 import json
 import sys
-import types
 from pathlib import Path
 import unittest
 
 
 def load_plugin_module():
-    sdk = types.ModuleType("maibot_sdk")
-
-    class ConfigBase:
-        pass
-
-    def identity_decorator(*args, **kwargs):
-        return lambda target: target
-
-    sdk.API = sdk.Command = sdk.HookHandler = sdk.Tool = identity_decorator
-    sdk.Field = lambda default=None, **kwargs: default
-    sdk.MaiBotPlugin = type("MaiBotPlugin", (), {})
-    sdk.PluginConfigBase = ConfigBase
-    sdk_types = types.ModuleType("maibot_sdk.types")
-    for name in ("ErrorPolicy", "HookMode", "HookOrder", "ToolParamType"):
-        setattr(sdk_types, name, types.SimpleNamespace(BLOCKING="blocking", EARLY="early", SKIP="skip", STRING="string"))
-    sdk_types.ToolParameterInfo = lambda **kwargs: kwargs
-    sys.modules["maibot_sdk"] = sdk
-    sys.modules["maibot_sdk.types"] = sdk_types
     path = Path(__file__).parents[1] / "plugin.py"
     spec = importlib.util.spec_from_file_location("memo_webui_test_plugin", path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -56,7 +38,7 @@ class WebUITests(unittest.TestCase):
         root = Path(__file__).parents[1]
         manifest = json.loads((root / "_manifest.json").read_text(encoding="utf-8"))
         webui = json.loads((root / "webui.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "1.2.0")
+        self.assertEqual(manifest["version"], "1.3.0")
         self.assertIn(manifest["display"]["icon"]["type"], {"lucide", "emoji", "local"})
         self.assertIn(webui["pages"][0]["icon"], {"puzzle", "chart", "settings", "database", "list"})
         self.assertEqual({"create", "update", "delete"} & set(webui["pages"][0]["actions"]), {"create", "update", "delete"})

@@ -404,9 +404,11 @@ class PersonalAssistantPlugin(MaiBotPlugin):
         )
 
     async def on_unload(self) -> None:
-        self._stop_scheduler()
-        for t in self._capture_timers.values():
+        await self._stop_scheduler()
+        timers = list(self._capture_timers.values())
+        for t in timers:
             t.cancel()
+        await asyncio.gather(*timers, return_exceptions=True)
         self._capture_timers.clear()
         await self._save_tasks()
         self.ctx.logger.info("个人备忘助手已卸载")
@@ -419,7 +421,7 @@ class PersonalAssistantPlugin(MaiBotPlugin):
             if self.config.plugin.enabled and self._scheduler_task is None:
                 self._start_scheduler()
             elif not self.config.plugin.enabled:
-                self._stop_scheduler()
+                await self._stop_scheduler()
         elif scope == "bot":
             self._personality_cache = None
             self._bot_ids_cache = None
@@ -501,11 +503,13 @@ class PersonalAssistantPlugin(MaiBotPlugin):
                 "task": str(item.get("task_text") or "")[:500],
                 "user_id": str(item.get("user_id") or "")[:80],
                 "group_id": str(item.get("group_id") or "")[:80],
+                "source_platform": str(item.get("source_platform") or "qq"),
                 "created_at": float(item.get("created_at") or 0),
                 "remind_at": float(item.get("remind_at") or 0),
                 "status": state,
                 "channel": str(item.get("channel_pref") or "auto"),
                 "repeat_daily": is_daily,
+                "last_status": str(item.get("last_status") or ""),
                 "media_count": len(item.get("media") or []),
             })
         return {"tasks": rows[:500], "total": len(rows), "truncated": len(rows) > 500}
@@ -521,6 +525,7 @@ class PersonalAssistantPlugin(MaiBotPlugin):
         text = str(values.get("task_text", current.get("task_text", "") if current else "")).strip()
         user_id = str(values.get("user_id", current.get("user_id", "") if current else "")).strip()
         group_id = str(values.get("group_id", current.get("group_id", "") if current else "")).strip()
+        platform = str(values.get("source_platform", current.get("source_platform", "qq") if current else "qq")).strip()
         channel = str(values.get("channel_pref", current.get("channel_pref", "auto") if current else "auto")).strip()
         repeat_daily = values.get("repeat_daily", current.get("repeat_daily", False) if current else False)
         if not text or len(text) > 500:
@@ -531,6 +536,10 @@ class PersonalAssistantPlugin(MaiBotPlugin):
             raise ValueError("群号不能超过 80 个字符")
         if channel not in {"auto", "private", "group"}:
             raise ValueError("提醒渠道无效")
+        if not platform or len(platform) > 80 or not re.fullmatch(r"[A-Za-z0-9_.:-]+", platform):
+            raise ValueError("请填写有效的平台标识")
+        if channel == "group" and not group_id:
+            raise ValueError("群聊提醒需要填写群号或平台群组 ID")
         if not isinstance(repeat_daily, bool):
             raise ValueError("每日重复选项无效")
         try:
@@ -539,7 +548,7 @@ class PersonalAssistantPlugin(MaiBotPlugin):
             raise ValueError("提醒时间无效") from exc
         if not math.isfinite(remind_at) or remind_at <= time.time():
             raise ValueError("提醒时间必须晚于当前时间")
-        return {"task_text": text, "user_id": user_id, "group_id": group_id,
+        return {"task_text": text, "user_id": user_id, "group_id": group_id, "source_platform": platform,
                 "channel_pref": channel, "repeat_daily": repeat_daily, "remind_at": remind_at}
 
     @API("memo_web_create", version="1")
@@ -552,7 +561,7 @@ class PersonalAssistantPlugin(MaiBotPlugin):
             mine = [item for item in self._tasks if item.get("user_id") == values["user_id"] and item.get("status") in {_STATUS_PENDING, "sending"}]
             if len(mine) >= int(self.config.reminder.max_tasks_per_user):
                 raise ValueError("该用户的待办任务已达到数量上限")
-            task = {"id": uuid.uuid4().hex, **values, "source_stream": "", "source_platform": "qq",
+            task = {"id": uuid.uuid4().hex, **values, "source_stream": "",
                     "created_at": time.time(), "status": _STATUS_PENDING, "media": [], "reply_to": ""}
             self._tasks.append(task)
             await self._save_tasks()
@@ -654,9 +663,11 @@ class PersonalAssistantPlugin(MaiBotPlugin):
         self._scheduler_task = asyncio.create_task(self._scheduler_loop(), name="memo_scheduler")
         self.ctx.logger.info("备忘调度循环已启动")
 
-    def _stop_scheduler(self) -> None:
+    async def _stop_scheduler(self) -> None:
         if self._scheduler_task is not None:
-            self._scheduler_task.cancel()
+            task = self._scheduler_task
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
             self._scheduler_task = None
             self.ctx.logger.info("备忘调度循环已停止")
 
@@ -678,10 +689,12 @@ class PersonalAssistantPlugin(MaiBotPlugin):
             await asyncio.sleep(interval)
 
     async def _cleanup_expired_tasks(self) -> int:
-        """清理所有已到期的任务（含已提醒/失败/拒绝），释放媒体文件。返回清理数。"""
+        """清理已终结的过期单次任务，保留待发送和发送中的提醒。"""
         now = time.time()
         async with self._tasks_lock:
-            expired = [t for t in self._tasks if not t.get("repeat_daily") and float(t.get("remind_at") or 0) <= now]
+            expired = [t for t in self._tasks if not t.get("repeat_daily")
+                       and t.get("status") in {_STATUS_DONE, _STATUS_FAILED, _STATUS_REJECTED}
+                       and float(t.get("remind_at") or 0) <= now]
             if not expired:
                 return 0
             victim_ids = {id(t) for t in expired}
@@ -957,8 +970,8 @@ class PersonalAssistantPlugin(MaiBotPlugin):
                 "source_platform": platform,
                 "task_text": task_text[:500],
                 "remind_at": remind_ts,
-                    "channel_pref": channel_pref,
-                    "repeat_daily": False,
+                "channel_pref": channel_pref,
+                "repeat_daily": False,
                 "created_at": now_ts,
                 "status": _STATUS_PENDING,
                 "media": [],
@@ -1260,7 +1273,14 @@ class PersonalAssistantPlugin(MaiBotPlugin):
             return
         for part in await self._split_reply_text(text):
             if part.strip():
-                await self.ctx.send.text(part, stream_id)
+                result = await self.ctx.send.text(part, stream_id, return_details=True)
+                self._require_sent(result)
+
+    @staticmethod
+    def _require_sent(result: Any) -> None:
+        """SDK 2.23 将 Host 发送失败解包为布尔值或 sent=false。"""
+        if result is not True and not (isinstance(result, dict) and result.get("sent") is True):
+            raise RuntimeError("平台未确认消息发送成功")
 
     async def _announce_result(self, stream_id: str, user_id: str, task: dict[str, Any] | None, reject: str) -> None:
         """向用户反馈任务创建结果（成功后连同附件图一起回发）。"""
@@ -1515,53 +1535,41 @@ class PersonalAssistantPlugin(MaiBotPlugin):
         task_id = task.get("id", "")
         async with self._tasks_lock:
             current = next((item for item in self._tasks if item.get("id") == task_id), None)
-            if current is None or current.get("status") != _STATUS_PENDING:
+            if (current is None or current.get("status") != _STATUS_PENDING
+                    or float(current.get("remind_at") or 0) > time.time()):
                 return
             current["status"] = "sending"
             task = current
         self.ctx.logger.info("备忘到期触发：task=%s，user=%s", task_id[:8], task.get("user_id"))
 
-        # 确定目标流
-        channel_pref = self._validate_channel_pref(task.get("channel_pref") or "auto")
-        user_id = task.get("user_id", "")
-        group_id = task.get("group_id", "")
-        target_stream, notify_private_unavailable = await self._resolve_reminder_stream(channel_pref, user_id, group_id)
-
-        reminder_text = await self._build_reminder_text(task)
-
-        if not target_stream:
-            # 无法找到任何目标流：标记失败并保留（可重试）
-            await self._mark_task(task_id, _STATUS_FAILED)
-            self.ctx.logger.warning("备忘提醒失败：找不到目标流，task=%s", task_id[:8])
-            return
-
-        delivered = False
         try:
+            channel_pref = self._validate_channel_pref(task.get("channel_pref") or "auto")
+            user_id = task.get("user_id", "")
+            group_id = task.get("group_id", "")
+            platform = str(task.get("source_platform") or "qq")
+            target_stream, _ = await self._resolve_reminder_stream(channel_pref, user_id, group_id, platform)
+            if not target_stream:
+                raise RuntimeError("找不到提醒目标会话")
+            reminder_text = await self._build_reminder_text(task)
             if target_stream.get("is_group"):
                 # 群聊 @
-                await self.ctx.send.custom("at", user_id, target_stream["stream_id"])
-                await self._send_text_split(reminder_text, target_stream["stream_id"])
-                delivered = True
-            else:
-                if notify_private_unavailable:
-                    await self._send_text_split(reminder_text, target_stream["stream_id"])
-                else:
-                    await self._send_text_split(reminder_text, target_stream["stream_id"])
-                delivered = True
-
-            # 发送附件
-            if delivered:
-                await self._send_task_media(task, target_stream["stream_id"])
+                result = await self.ctx.send.custom("at", user_id, target_stream["stream_id"], return_details=True)
+                self._require_sent(result)
+            await self._send_text_split(reminder_text, target_stream["stream_id"])
+            await self._send_task_media(task, target_stream["stream_id"])
+        except asyncio.CancelledError:
+            async with self._tasks_lock:
+                task["status"] = _STATUS_PENDING
+            raise
         except Exception as exc:
             self.ctx.logger.warning("备忘提醒发送异常：%s", exc)
             await self._mark_task(task_id, _STATUS_FAILED)
             return
 
-        if delivered:
-            await self._mark_task(task_id, _STATUS_DONE)
-            self.ctx.logger.info("备忘提醒完成：task=%s", task_id[:8])
+        await self._mark_task(task_id, _STATUS_DONE)
+        self.ctx.logger.info("备忘提醒完成：task=%s", task_id[:8])
 
-    async def _resolve_reminder_stream(self, channel_pref: str, user_id: str, group_id: str) -> tuple[dict[str, Any] | None, bool]:
+    async def _resolve_reminder_stream(self, channel_pref: str, user_id: str, group_id: str, platform: str = "qq") -> tuple[dict[str, Any] | None, bool]:
         """确定提醒目标流。返回 (stream_dict|None, 私聊不可用提示标志)。
 
         渠道规则（稳定一致，不依赖私聊流是否恰好存在）：
@@ -1572,20 +1580,22 @@ class PersonalAssistantPlugin(MaiBotPlugin):
 
         async def _private() -> dict[str, Any] | None:
             try:
-                stream = await self.ctx.chat.get_stream_by_user_id(user_id)
+                stream = await self.ctx.chat.get_stream_by_user_id(user_id, platform=platform)
                 if stream and isinstance(stream, dict):
                     sid = str(stream.get("stream_id") or stream.get("session_id") or "")
-                    return {"stream_id": sid, "is_group": False}
+                    if sid:
+                        return {"stream_id": sid, "is_group": False}
             except Exception as exc:
                 self.ctx.logger.warning("查询私聊流失败：%s", exc)
             return None
 
         async def _group() -> dict[str, Any] | None:
             try:
-                gstream = await self.ctx.chat.get_stream_by_group_id(group_id)
+                gstream = await self.ctx.chat.get_stream_by_group_id(group_id, platform=platform)
                 if gstream and isinstance(gstream, dict):
                     gsid = str(gstream.get("stream_id") or gstream.get("session_id") or "")
-                    return {"stream_id": gsid, "is_group": True}
+                    if gsid:
+                        return {"stream_id": gsid, "is_group": True}
             except Exception as exc:
                 self.ctx.logger.warning("查询群流失败：%s", exc)
             return None
@@ -1688,22 +1698,25 @@ class PersonalAssistantPlugin(MaiBotPlugin):
                     path = item.get("path")
                     if path and Path(path).is_file():
                         raw = await asyncio.to_thread(Path(path).read_bytes)
-                        await self.ctx.send.image(base64.b64encode(raw).decode("ascii"), stream_id)
+                        result = await self.ctx.send.image(base64.b64encode(raw).decode("ascii"), stream_id, return_details=True)
+                        self._require_sent(result)
                 elif item.get("kind") == "file":
                     file_ref = item.get("file_ref") or ""
                     if file_ref:
-                        await self.ctx.send.custom(
+                        result = await self.ctx.send.custom(
                             "file",
                             {"file_ref": file_ref, "name": item.get("name") or "附件", "mime_type": item.get("mime") or ""},
                             stream_id,
+                            return_details=True,
                         )
+                        self._require_sent(result)
             except Exception as exc:
                 self.ctx.logger.warning("发送备忘附件失败：%s", exc)
 
     async def _mark_task(self, task_id: str, status: str) -> bool:
-        """到期后终结任务：无论成败都清理附件，并移除任务记录（清理相关数据）。
+        """每日任务顺延至下次，单次任务终结后清理附件和任务记录。
 
-        返回是否实际移除（done/failed 会移除记录并返回 True；其它状态仅更新，返回 False）。
+        仅移除单次任务时返回 True；每日顺延和其它状态更新返回 False。
         """
         removed = False
         changed = False
@@ -1712,10 +1725,13 @@ class PersonalAssistantPlugin(MaiBotPlugin):
                 if t.get("id") == task_id:
                     if t.get("repeat_daily") and status in (_STATUS_DONE, _STATUS_FAILED):
                         next_at = datetime.fromtimestamp(float(t.get("remind_at") or time.time())) + timedelta(days=1)
-                        while next_at.timestamp() <= time.time():
-                            next_at += timedelta(days=1)
+                        now = datetime.now()
+                        if next_at <= now:
+                            next_at += timedelta(days=(now - next_at).days + 1)
                         t["remind_at"] = next_at.timestamp()
                         t["status"] = _STATUS_PENDING
+                        t["last_status"] = status
+                        t["last_run_at"] = time.time()
                         changed = True
                         break
                     # 无论成败，先清理附件（落盘图片、媒体目录）
@@ -1803,7 +1819,7 @@ class PersonalAssistantPlugin(MaiBotPlugin):
         if new_state:
             self._start_scheduler()
         else:
-            self._stop_scheduler()
+            await self._stop_scheduler()
         text = f"备忘插件已{'开启' if new_state else '关闭'}" + ("" if ok else "（config.toml 写入失败，仅本次生效）")
         await self.ctx.send.text(text, stream_id)
         return True, text, 2

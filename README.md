@@ -1,6 +1,6 @@
 # 个人备忘助手 WebUI（Personal Assistant WebUI）
 
-让麦麦帮你记住提醒：艾特 bot 或发 `/备忘` 指令创建定时备忘任务，到期后麦麦用 LLM 生成**真人化提醒**，按你的偏好私聊或群聊 `@` 发送，支持携带图片/文件附件。任务**持久化**，麦麦重启后自动恢复继续运行；到期后**无论成败**都会清理附件与任务记录。MaiBot 插件 WebUI 可查看、搜索、筛选及取消任务，无需另开管理端口。
+让麦麦帮你记住提醒：艾特 bot 或发 `/备忘` 指令创建定时备忘任务，到期后麦麦用 LLM 生成**真人化提醒**，按你的偏好私聊或群聊 `@` 发送，支持携带图片/文件附件。任务持久化，重启后自动恢复。MaiBot WebUI 可新增、编辑、删除、筛选任务，并设置每日重复，无需另开管理端口。
 
 本插件基于 [LDrumDusk/maibot_personal_assistant](https://github.com/LDrumDusk/maibot_personal_assistant) 修改，保留原插件 MIT 许可证及署名。
 
@@ -15,9 +15,17 @@
 
 MaiBot WebUI 插件扩展侧栏中的 **备忘任务管理** 页面可按状态和单次/每日类型筛选，搜索任务内容或 QQ 号，并新增、编辑、删除和刷新任务。管理页创建的任务可填写 QQ 号、群号、提醒时间和私聊/群聊渠道；每日任务发送后保留，并顺延到次日的相同时间。页面沿用 MaiBot 登录态，不会开放独立 HTTP 端口；单次列表最多展示 500 条匹配结果。
 
-本版管理页面要求 MaiBot **1.3.16+** 与 Plugin SDK **2.16.0+**。
+当前插件版本 **1.3.0**，适配 [MaiBot v1.4.7](https://github.com/Mai-with-u/MaiBot/releases/tag/v1.4.7)、WebUI **1.10.7**、[Plugin SDK v2.23.0](https://github.com/Mai-with-u/maibot-plugin-sdk/releases/tag/v2.23.0)，需要 Python **3.12+**。清单兼容范围为 Host **1.4.7–1.4.99**、SDK **2.23.0–2.23.99**；实际验证版本为 1.4.7 / 2.23.0。仍在使用 MaiBot 1.3.x 的用户可保留插件 v1.2.0。
 
-在 MaiBot WebUI 的插件扩展侧栏打开 **备忘任务管理**，可按状态筛选、搜索任务内容或 QQ 号、刷新列表，并取消仍在等待的任务。任务列表仅展示前 500 条匹配结果；页面沿用 MaiBot 登录态，不会开放独立 HTTP 端口。
+通过当前发行版更新时保留插件配置和相同插件 ID 的数据目录。`plugin.config_version` 仍为 `1.0.0`，无需修改；原 `tasks.json` 格式、任务 ID 和附件目录继续使用。不要同时启用原个人备忘助手和本插件，以免相同聊天指令重复触发。
+
+### WebUI 任务与每日重复
+
+- 普通 QQ 的平台标识填 `qq`；其他连接器请使用其实际平台标识和对应用户/群组 ID。已有任务缺少平台字段时按 `qq` 读取。
+- 表单中的提醒时间按浏览器本地时区填写；每日重复以运行 MaiBot 的服务器时区为准。服务器与浏览器均设为 `Asia/Shanghai` 时，每天保持相同北京时间。
+- 每日任务首次提醒仍受“时间上限”和“每人任务上限”约束。每次成功或失败后都保留，并顺延至下次相同时间；不会在失败后立即重发。上次发送失败会在列表中显示。
+- 服务器停机期间不会补发多天的每一次提醒：恢复后处理一次已到期任务，再安排下一个未来日期。单次任务在处理结束后清理。
+- 任务进入“发送中”后不可编辑或删除。编辑保留原附件；删除需在页面内确认，并清理该任务附件。
 
 ## 使用方式
 
@@ -91,7 +99,7 @@ admin_ids = []                # 超级管理员 QQ 号（可用 /备忘开关 �
 - 发布任务时带上图片 → 图片**落盘**到插件数据目录 `media/<任务id>/`，到期提醒时麦麦把图片一起发给你。
 - 发布任务时带上视频/文件 → 记录主程序文件引用（`file_ref`），到期时作为文件发送；不占插件存储。
 - 单个附件超过 `[storage] max_media_mb`（默认 20MB）会被跳过，不会作为任务附件。
-- **任务到期时无论发送成功与否**，插件都会清理该任务的附件（落盘图片、媒体目录）与任务记录。
+- 单次任务处理结束后清理附件和记录；每日任务保留附件，直到主动删除。文件引用须仍可在目标会话使用，不能通过修改群组绕过宿主的文件归属限制。
 
 ## 真人化提醒
 
@@ -118,3 +126,13 @@ admin_ids = []                # 超级管理员 QQ 号（可用 /备忘开关 �
 - 依赖：标准库 + `tomlkit`（写入 config.toml）
 - 许可证：MIT
 - 本地验证记录见 [VALIDATION.md](VALIDATION.md)。
+
+在开发环境安装 `requirements-dev.txt` 后，可运行 `python -m unittest discover -s tests -v`。测试使用真实 SDK 的配置模型、装饰器和能力代理，仅模拟 Host RPC 结果，不连接 QQ 或 LLM。
+
+使用官方标签源码验证宿主协议：
+
+```console
+python tools/check_compat.py --host-root /path/to/MaiBot-v1.4.7 --sdk-root /path/to/maibot-plugin-sdk-v2.23.0 --run-tests
+```
+
+浏览器回归见 `tests/test_webui_browser.cjs`。它使用宿主原始页面 SDK/CSP 和实际插件后端；需要 Node.js 的 Playwright 模块、Chromium/Edge，以及 `MAIBOT_HOST_ROOT`、`SDK_ROOT`、`TEST_PYTHON` 环境变量。可通过 `PLAYWRIGHT_MODULE` 和 `BROWSER_EXECUTABLE` 指定已有环境。
